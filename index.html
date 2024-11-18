@@ -1,1 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Telegram Pong</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --tg-theme-bg-color: #000000;
+            --tg-theme-text-color: #ffffff;
+            --tg-theme-button-color: #2ea6ff;
+            --tg-theme-button-text-color: #ffffff;
+        }
 
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: var(--tg-theme-bg-color);
+            color: var(--tg-theme-text-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        canvas {
+            border: 2px solid var(--tg-theme-button-color);
+            margin-top: 60px;
+        }
+
+        #score {
+            position: absolute;
+            top: 20px;
+            text-align: center;
+            width: 100%;
+            font-size: 20px;
+            z-index: 10;
+        }
+
+        #tokenBar {
+            position: absolute;
+            top: 50px;
+            text-align: center;
+            width: 100%;
+            font-size: 16px;
+            color: var(--tg-theme-button-color);
+        }
+
+        #menuOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+
+        .button {
+            background-color: var(--tg-theme-button-color);
+            color: var(--tg-theme-button-text-color);
+            border: none;
+            padding: 12px 24px;
+            margin: 8px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="score">Player: 0 | AI: 0</div>
+        <div id="tokenBar">Tokens: 5</div>
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="menuOverlay">
+            <button id="playButton" class="button">Play Game (1 Token)</button>
+            <button id="shopButton" class="button">Get More Tokens</button>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Telegram WebApp
+        const webapp = window.Telegram.WebApp;
+        webapp.expand();
+
+        // Game constants and variables
+        const canvas = document.getElementById("gameCanvas");
+        const context = canvas.getContext("2d");
+        let tokens = 5;
+        let playerScore = 0;
+        let aiScore = 0;
+        let gameActive = false;
+
+        // Set canvas size based on device screen
+        function resizeCanvas() {
+            const maxWidth = Math.min(window.innerWidth - 20, 800);
+            const maxHeight = Math.min(window.innerHeight - 100, 400);
+            const aspectRatio = 2;
+            
+            if (maxWidth / maxHeight > aspectRatio) {
+                canvas.width = maxHeight * aspectRatio;
+                canvas.height = maxHeight;
+            } else {
+                canvas.width = maxWidth;
+                canvas.height = maxWidth / aspectRatio;
+            }
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Game objects
+        const paddleWidth = canvas.width * 0.0125;
+        const paddleHeight = canvas.height * 0.25;
+        const ballSize = canvas.width * 0.0125;
+
+        const player = {
+            x: 20,
+            y: canvas.height / 2 - paddleHeight / 2,
+            width: paddleWidth,
+            height: paddleHeight,
+            color: "white",
+            speed: 5
+        };
+
+        const ai = {
+            x: canvas.width - 20 - paddleWidth,
+            y: canvas.height / 2 - paddleHeight / 2,
+            width: paddleWidth,
+            height: paddleHeight,
+            color: "white",
+            speed: 3
+        };
+
+        const ball = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            width: ballSize,
+            height: ballSize,
+            color: "white",
+            dx: 4,
+            dy: 4
+        };
+
+        // Touch handling for mobile
+        let touchY = null;
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            touchY = touch.clientY;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!gameActive) return;
+            
+            const touch = e.touches[0];
+            const deltaY = touch.clientY - touchY;
+            touchY = touch.clientY;
+            
+            player.y += deltaY;
+            if (player.y < 0) player.y = 0;
+            if (player.y + player.height > canvas.height) player.y = canvas.height - player.height;
+        });
+
+        // Game functions
+        function drawRect(x, y, width, height, color) {
+            context.fillStyle = color;
+            context.fillRect(x, y, width, height);
+        }
+
+        function drawBall(x, y, size, color) {
+            context.fillStyle = color;
+            context.beginPath();
+            context.arc(x, y, size / 2, 0, Math.PI * 2);
+            context.fill();
+        }
+
+        function resetBall() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.dx = 4 * (Math.random() < 0.5 ? 1 : -1);
+            ball.dy = 4 * (Math.random() < 0.5 ? 1 : -1);
+        }
+
+        function updateScores() {
+            document.getElementById("score").textContent = `Player: ${playerScore} | AI: ${aiScore}`;
+            document.getElementById("tokenBar").textContent = `Tokens: ${tokens}`;
+        }
+
+        function movePaddles() {
+            // AI movement
+            const aiCenter = ai.y + ai.height / 2;
+            const ballCenter = ball.y;
+            
+            if (Math.abs(aiCenter - ballCenter) > ai.speed) {
+                if (aiCenter < ballCenter) {
+                    ai.y += ai.speed;
+                } else {
+                    ai.y -= ai.speed;
+                }
+            }
+
+            if (ai.y < 0) ai.y = 0;
+            if (ai.y + ai.height > canvas.height) ai.y = canvas.height - ai.height;
+        }
+
+        function moveBall() {
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+
+            // Wall collisions
+            if (ball.y <= 0 || ball.y + ball.height >= canvas.height) {
+                ball.dy *= -1;
+            }
+
+            // Paddle collisions
+            if (ball.x <= player.x + player.width && 
+                ball.y >= player.y && 
+                ball.y <= player.y + player.height) {
+                ball.dx = Math.abs(ball.dx);
+                ball.dx *= 1.1; // Increase speed slightly
+            }
+
+            if (ball.x + ball.width >= ai.x && 
+                ball.y >= ai.y && 
+                ball.y <= ai.y + ai.height) {
+                ball.dx = -Math.abs(ball.dx);
+                ball.dx *= 1.1; // Increase speed slightly
+            }
+
+            // Scoring
+            if (ball.x < 0) {
+                aiScore++;
+                updateScores();
+                resetBall();
+                checkGameOver();
+            } else if (ball.x + ball.width > canvas.width) {
+                playerScore++;
+                updateScores();
+                resetBall();
+                checkGameOver();
+            }
+        }
+
+        function checkGameOver() {
+            if (playerScore >= 5 || aiScore >= 5) {
+                gameActive = false;
+                const winner = playerScore >= 5 ? "You win!" : "AI wins!";
+                
+                // Show game over popup
+                webapp.showPopup({
+                    title: "Game Over",
+                    message: `${winner}\nFinal Score: ${playerScore} - ${aiScore}`,
+                    buttons: [{
+                        id: "play_again",
+                        type: "default",
+                        text: "Play Again"
+                    }]
+                });
+
+                // Reset scores
+                playerScore = 0;
+                aiScore = 0;
+                updateScores();
+                showMenu();
+            }
+        }
+
+        function gameLoop() {
+            if (!gameActive) return;
+            
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            drawRect(player.x, player.y, player.width, player.height, player.color);
+            drawRect(ai.x, ai.y, ai.width, ai.height, ai.color);
+            drawBall(ball.x, ball.y, ball.width, ball.color);
+
+            movePaddles();
+            moveBall();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Menu handling
+        const menuOverlay = document.getElementById("menuOverlay");
+        const playButton = document.getElementById("playButton");
+        const shopButton = document.getElementById("shopButton");
+
+        function showMenu() {
+            menuOverlay.classList.remove("hidden");
+            gameActive = false;
+        }
+
+        function hideMenu() {
+            menuOverlay.classList.add("hidden");
+        }
+
+        playButton.addEventListener("click", () => {
+            if (tokens > 0) {
+                tokens--;
+                updateScores();
+                hideMenu();
+                gameActive = true;
+                resetBall();
+                gameLoop();
+            } else {
+                webapp.showPopup({
+                    title: "No Tokens",
+                    message: "You need tokens to play. Visit the shop to get more!",
+                    buttons: [{
+                        id: "get_tokens",
+                        type: "default",
+                        text: "Get Tokens"
+                    }]
+                });
+            }
+        });
+
+        shopButton.addEventListener("click", () => {
+            webapp.showPopup({
+                title: "Token Shop",
+                message: "Choose a token package:",
+                buttons: [
+                    {
+                        id: "tokens_5",
+                        type: "default",
+                        text: "5 Tokens"
+                    },
+                    {
+                        id: "tokens_10",
+                        type: "default",
+                        text: "10 Tokens"
+                    }
+                ]
+            });
+        });
+
+        // Initialize game
+        updateScores();
+        showMenu();
+
+        // Handle popup button clicks
+        webapp.onEvent("popupClosed", (e) => {
+            if (e.button_id === "tokens_5") {
+                // Here you would normally integrate with your payment system
+                tokens += 5;
+                updateScores();
+            } else if (e.button_id === "tokens_10") {
+                // Here you would normally integrate with your payment system
+                tokens += 10;
+                updateScores();
+            }
+        });
+    </script>
+</body>
+</html>
